@@ -1,106 +1,143 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import '../models/reminder.dart';
+import '../models/quest.dart';
 
 final FlutterLocalNotificationsPlugin _plugin =
     FlutterLocalNotificationsPlugin();
 
-/// Dipanggil saat tombol aksi ditekan ketika aplikasi ditutup.
 @pragma('vm:entry-point')
-void notificationTapBackground(NotificationResponse r) {
-  NotificationService.handleAction(r);
+void notificationTapBackground(NotificationResponse response) {
+  NotificationService.handleAction(response);
 }
 
 class NotificationService {
-  static const actionDone = 'done';
-  static const actionSnooze = 'snooze';
-  static const snoozeMenit = 10;
+  static const String actionDone = 'done';
+  static const String actionSnooze = 'snooze';
+  static const int snoozeMinutes = 10;
 
-  static Future<void> _initTz() async {
-    tz.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('Asia/Jakarta'));
-  }
+  static const String channelId = 'remindo_alarm_channel';
+  static const String channelName = 'Remindo Alarm';
 
   static Future<void> init() async {
-    await _initTz();
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    tz.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Asia/Jakarta'));
+
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
     await _plugin.initialize(
-      const InitializationSettings(android: android),
+      const InitializationSettings(android: androidSettings),
       onDidReceiveNotificationResponse: handleAction,
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
   }
 
   static Future<void> requestPermissions() async {
-    final a = _plugin.resolvePlatformSpecificImplementation<
+    final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    await a?.requestNotificationsPermission();
-    await a?.requestExactAlarmsPermission();
+    await android?.requestNotificationsPermission();
+    await android?.requestExactAlarmsPermission();
   }
 
-  static NotificationDetails _details() => NotificationDetails(
-        android: AndroidNotificationDetails(
-          'pengingat_channel',
-          'Pengingat',
-          channelDescription: 'Notifikasi pengingat tugas dan jadwal',
-          importance: Importance.max,
-          priority: Priority.high,
-          category: AndroidNotificationCategory.alarm,
-          fullScreenIntent: true,
-          playSound: true,
-          enableVibration: true,
-          actions: const [
-            AndroidNotificationAction(actionDone, 'Selesai'),
-            AndroidNotificationAction(actionSnooze, 'Tunda 10 mnt'),
-          ],
-        ),
-      );
-
-  static Future<void> schedule(Reminder r) async {
-    if (r.id == null || r.done) return;
-    final when = tz.TZDateTime.from(r.dateTime, tz.local);
-    DateTimeComponents? match;
-    if (r.repeat == Repeat.daily) match = DateTimeComponents.time;
-    if (r.repeat == Repeat.weekly) match = DateTimeComponents.dayOfWeekAndTime;
-    if (match == null && when.isBefore(tz.TZDateTime.now(tz.local))) return;
-
-    await _plugin.zonedSchedule(
-      r.id!,
-      r.title,
-      r.note.isEmpty ? r.category : r.note,
-      when,
-      _details(),
-      payload: r.title,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: match,
+  static NotificationDetails _details({String? soundPath}) {
+    return NotificationDetails(
+      android: AndroidNotificationDetails(
+        channelId,
+        channelName,
+        channelDescription: 'Notifikasi quest dan pengingat harian Remindo',
+        importance: Importance.max,
+        priority: Priority.high,
+        category: AndroidNotificationCategory.alarm,
+        fullScreenIntent: true,
+        playSound: true,
+        enableVibration: true,
+        sound: soundPath != null
+            ? UriAndroidNotificationSound(soundPath)
+            : null,
+        actions: const [
+          AndroidNotificationAction(
+            actionDone,
+            'Selesai',
+            showsUserInterface: true,
+          ),
+          AndroidNotificationAction(
+            actionSnooze,
+            'Tunda 10 menit',
+            showsUserInterface: true,
+          ),
+        ],
+      ),
     );
   }
 
-  static Future<void> cancel(int id) => _plugin.cancel(id);
+  /// Schedule a quest notification
+  static Future<void> scheduleQuest(Quest quest) async {
+    if (quest.id == null || quest.isCompleted || !quest.isAlarmEnabled) return;
 
-  static Future<void> handleAction(NotificationResponse r) async {
-    final id = r.id;
+    final scheduledDate = tz.TZDateTime.from(quest.dateTime, tz.local);
+
+    // Skip if one-time and already past
+    if (quest.repeatType == RepeatType.once &&
+        scheduledDate.isBefore(tz.TZDateTime.now(tz.local))) {
+      return;
+    }
+
+    DateTimeComponents? matchComponents;
+    if (quest.repeatType == RepeatType.daily) {
+      matchComponents = DateTimeComponents.time;
+    } else if (quest.repeatType == RepeatType.weekly) {
+      matchComponents = DateTimeComponents.dayOfWeekAndTime;
+    }
+
+    await _plugin.zonedSchedule(
+      quest.id!,
+      quest.title,
+      quest.note.isEmpty ? 'Waktunya mengerjakan quest!' : quest.note,
+      scheduledDate,
+      _details(),
+      payload: quest.id.toString(),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: matchComponents,
+    );
+  }
+
+  static Future<void> cancel(int id) async {
+    await _plugin.cancel(id);
+  }
+
+  static Future<void> cancelAll() async {
+    await _plugin.cancelAll();
+  }
+
+  static Future<void> snooze(int id, String title) async {
+    final snoozeTime =
+        tz.TZDateTime.now(tz.local).add(const Duration(minutes: snoozeMinutes));
+
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      'Ditunda $snoozeMinutes menit',
+      snoozeTime,
+      _details(),
+      payload: id.toString(),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
+  static Future<void> handleAction(NotificationResponse response) async {
+    final id = response.id;
     if (id == null) return;
-    if (r.actionId == actionDone) {
-      await _plugin.cancel(id);
-    } else if (r.actionId == actionSnooze) {
-      await _initTz();
-      final at = tz.TZDateTime.now(tz.local)
-          .add(const Duration(minutes: snoozeMenit));
-      await _plugin.zonedSchedule(
-        id,
-        r.payload ?? 'Pengingat',
-        'Ditunda $snoozeMenit menit',
-        at,
-        _details(),
-        payload: r.payload,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
+
+    if (response.actionId == actionDone) {
+      await cancel(id);
+      // Note: completeQuest should be called from UI layer with full Quest object
+    } else if (response.actionId == actionSnooze) {
+      await snooze(id, response.payload ?? 'Quest');
     }
   }
 }
