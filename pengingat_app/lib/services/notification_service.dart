@@ -17,14 +17,13 @@ class NotificationService {
   static const actionSnooze = 'snooze';
   static const snoozeMenit = 10;
 
-  static Future<void> static Future<void>_iniTz() async {tz.initializeTimeZones(); tz.setLocation(tz.getLocation('Asia/Jakarta'));() async {
+  static Future<void> _initTz() async {
     tz.initializeTimeZones();
-    final name = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(name));
+    tz.setLocalLocation(tz.getLocation('Asia/Jakarta'));
   }
 
   static Future<void> init() async {
-    await static Future<void>_iniTz() async {tz.initializeTimeZones(); tz.setLocation(tz.getLocation('Asia/Jakarta'));();
+    await _initTz();
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     await _plugin.initialize(
       const InitializationSettings(android: android),
@@ -48,7 +47,7 @@ class NotificationService {
           importance: Importance.max,
           priority: Priority.high,
           category: AndroidNotificationCategory.alarm,
-          fullScreenIntent: true, // popup saat layar mati/terkunci
+          fullScreenIntent: true,
           playSound: true,
           enableVibration: true,
           actions: const [
@@ -88,7 +87,7 @@ class NotificationService {
     if (r.actionId == actionDone) {
       await _plugin.cancel(id);
     } else if (r.actionId == actionSnooze) {
-      await static Future<void>_iniTz() async {tz.initializeTimeZones(); tz.setLocation(tz.getLocation('Asia/Jakarta'));();
+      await _initTz();
       final at = tz.TZDateTime.now(tz.local)
           .add(const Duration(minutes: snoozeMenit));
       await _plugin.zonedSchedule(
