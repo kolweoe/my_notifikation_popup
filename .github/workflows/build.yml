@@ -1,0 +1,31 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Buat kerangka Android
+        run: |
+          flutter create --platforms=android --org com.pengingat --project-name pengingat_app _tmp
+          cp -r _tmp/android ./android
+          rm -rf _tmp
+      - name: Terapkan izin dan konfigurasi Gradle
+        run: python3 tool/setup_android.py
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pengingat-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
